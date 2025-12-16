@@ -8,9 +8,9 @@ services:
     ports:
       - "27017:27017"
     environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: password
-      MONGO_INITDB_DATABASE: tictactoe
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:?Set MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:?Set MONGO_INITDB_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_INITDB_DATABASE:?Set MONGO_INITDB_DATABASE}
     volumes:
       - mongodb_data:/data/db
     networks:
@@ -27,8 +27,8 @@ services:
     environment:
       NODE_ENV: development
       PORT: 4000
-      MONGODB_URI: mongodb://admin:password@mongodb:27017/tictactoe?authSource=admin
-      JWT_SECRET: your-super-secret-jwt-key-change-in-production
+      MONGODB_URI: ${MONGODB_URI:?Set MONGODB_URI}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
     depends_on:
       - mongodb
     volumes:
@@ -63,4 +63,3 @@ volumes:
 networks:
   tictactoe-network:
     driver: bridge
-

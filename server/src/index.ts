@@ -9,7 +9,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { createContext, createSubscriptionContext } from './utils/auth';
 import { formatError } from './utils/errors';
-import { withAuth } from './utils/guards';
+import { typeDefs, resolvers } from './schema';
 import type { GraphQLContext, SubscriptionContext } from './types/context';
 
 dotenv.config();
@@ -24,34 +24,6 @@ app.use(cors({
 }));
 
 app.use(express.json());
-
-// GraphQL schema with example protected query
-const typeDefs = `#graphql
-  type Query {
-    hello: String
-    me: User
-  }
-
-  type User {
-    id: ID!
-    email: String!
-    username: String!
-  }
-`;
-
-const resolvers = {
-  Query: {
-    hello: () => 'Hello from Tic-Tac-Toe Server!',
-    // Example protected resolver
-    me: withAuth((_parent, _args, context) => {
-      return {
-        id: context.user.id,
-        email: context.user.email,
-        username: context.user.username,
-      };
-    }),
-  },
-};
 
 const schema = makeExecutableSchema({ typeDefs, resolvers });
 
@@ -91,7 +63,12 @@ async function startServer() {
   apolloServer.applyMiddleware({ app: app as any, path: '/graphql' });
 
   // MongoDB connection
-  const mongoUri = process.env.MONGODB_URI || 'mongodb://admin:password@localhost:27017/tictactoe?authSource=admin';
+  const mongoUri = process.env.MONGODB_URI;
+  
+  if (!mongoUri) {
+    console.error('❌ MONGODB_URI is not set. Please provide a connection string.');
+    process.exit(1);
+  }
   
   try {
     await mongoose.connect(mongoUri);
@@ -121,4 +98,3 @@ startServer().catch((error) => {
   console.error('Failed to start server:', error);
   process.exit(1);
 });
-

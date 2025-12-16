@@ -1,0 +1,214 @@
+# GraphQL Schema for Tic-Tac-Toe Online
+
+# ============================================
+# Enums
+# ============================================
+
+enum UserStatus {
+  ONLINE
+  IN_GAME
+  OFFLINE
+}
+
+enum RoomStatus {
+  WAITING
+  IN_PROGRESS
+  FINISHED
+}
+
+enum GameStatus {
+  RUNNING
+  FINISHED
+  DRAW
+}
+
+enum Symbol {
+  X
+  O
+}
+
+enum MessageType {
+  USER
+  SYSTEM
+}
+
+# ============================================
+# Types
+# ============================================
+
+type User {
+  id: ID!
+  email: String!
+  username: String!
+  rating: Int!
+  gamesPlayed: Int!
+  status: UserStatus!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type Room {
+  id: ID!
+  code: String!
+  status: RoomStatus!
+  owner: User!
+  players: [User!]!
+  activeGame: Game
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type Game {
+  id: ID!
+  room: Room!
+  players: [GamePlayer!]!
+  board: [String!]! # Array of 9 cells: "", "X", or "O"
+  turn: User
+  winner: User
+  status: GameStatus!
+  moves: [Move!]!
+  startedAt: DateTime!
+  endedAt: DateTime
+}
+
+type GamePlayer {
+  user: User!
+  symbol: Symbol!
+}
+
+type Move {
+  id: ID!
+  game: Game!
+  user: User!
+  cellIndex: Int! # 0-8
+  symbol: Symbol!
+  createdAt: DateTime!
+}
+
+type ChatMessage {
+  id: ID!
+  room: Room!
+  author: User
+  text: String!
+  type: MessageType!
+  createdAt: DateTime!
+}
+
+type LeaderboardEntry {
+  user: User!
+  rank: Int!
+  rating: Int!
+  gamesPlayed: Int!
+  winRate: Float!
+}
+
+type AuthPayload {
+  token: String!
+  user: User!
+}
+
+# ============================================
+# Input Types
+# ============================================
+
+input RegisterInput {
+  email: String!
+  username: String!
+  password: String!
+}
+
+input LoginInput {
+  email: String!
+  password: String!
+}
+
+input CreateRoomInput {
+  # Optional: room name or settings can be added here
+}
+
+input JoinRoomInput {
+  code: String!
+}
+
+input MakeMoveInput {
+  roomCode: String!
+  cellIndex: Int! # 0-8
+}
+
+input SendMessageInput {
+  roomCode: String!
+  text: String!
+}
+
+# ============================================
+# Queries
+# ============================================
+
+type Query {
+  # Get current authenticated user
+  me: User
+
+  # Get all rooms in lobby (waiting for players)
+  lobbyRooms: [Room!]!
+
+  # Get room by code
+  roomByCode(code: String!): Room
+
+  # Get active game in a room
+  gameByRoom(roomCode: String!): Game
+
+  # Get chat messages for a room
+  chatMessages(roomCode: String!, limit: Int, offset: Int): [ChatMessage!]!
+
+  # Get leaderboard
+  leaderboard(limit: Int): [LeaderboardEntry!]!
+}
+
+# ============================================
+# Mutations
+# ============================================
+
+type Mutation {
+  # Register a new user
+  register(input: RegisterInput!): AuthPayload!
+
+  # Login user
+  login(input: LoginInput!): AuthPayload!
+
+  # Create a new room
+  createRoom(input: CreateRoomInput): Room!
+
+  # Join an existing room
+  joinRoom(input: JoinRoomInput!): Room!
+
+  # Leave a room
+  leaveRoom(roomCode: String!): Boolean!
+
+  # Make a move in the game
+  makeMove(input: MakeMoveInput!): Game!
+
+  # Send a chat message
+  sendMessage(input: SendMessageInput!): ChatMessage!
+}
+
+# ============================================
+# Subscriptions
+# ============================================
+
+type Subscription {
+  # Subscribe to room updates (status, players, etc.)
+  roomUpdated(roomCode: String!): Room!
+
+  # Subscribe to game updates (moves, status, winner)
+  gameUpdated(roomCode: String!): Game!
+
+  # Subscribe to new chat messages
+  messageAdded(roomCode: String!): ChatMessage!
+}
+
+# ============================================
+# Scalars
+# ============================================
+
+scalar DateTime
+
