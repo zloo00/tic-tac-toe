@@ -104,7 +104,4 @@ const gameSchema = new Schema<GameDocument>(
 );
 
 gameSchema.plugin(softDeletePlugin);
-gameSchema.index({ room: 1 }, { unique: true });
-
 export const GameModel = model<GameDocument>('Game', gameSchema);
-

@@ -9,6 +9,8 @@ export interface UserDocument extends Document, SoftDeleteDocument {
   rating: number;
   gamesPlayed: number;
   status: UserStatus;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const userSchema = new Schema<UserDocument>(
@@ -61,8 +63,4 @@ const userSchema = new Schema<UserDocument>(
 
 userSchema.plugin(softDeletePlugin);
 
-userSchema.index({ email: 1 }, { unique: true });
-userSchema.index({ username: 1 }, { unique: true });
-
 export const UserModel = model<UserDocument>('User', userSchema);
-

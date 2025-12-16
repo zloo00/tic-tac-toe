@@ -1,6 +1,8 @@
-import { withAuth } from '../utils/guards';
 import { PubSub } from 'graphql-subscriptions';
+import { withAuth } from '../utils/guards';
 import type { GraphQLContext } from '../types/context';
+import { loginUser, registerUser } from '../services/authService';
+import type { LoginInput, RegisterInput } from '../services/authService';
 
 // PubSub instance for subscriptions
 export const pubsub = new PubSub();
@@ -24,19 +26,7 @@ export const resolvers = {
   // ============================================
   Query: {
     // Get current authenticated user
-    me: withAuth((_parent, _args, context) => {
-      // TODO: Fetch user from database
-      return {
-        id: context.user.id,
-        email: context.user.email,
-        username: context.user.username,
-        rating: 1000,
-        gamesPlayed: 0,
-        status: 'ONLINE',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-    }),
+    me: withAuth((_parent, _args, context) => context.user),
 
     // Get all rooms in lobby (waiting for players)
     lobbyRooms: (_parent: unknown, _args: unknown, _context: GraphQLContext) => {
@@ -78,21 +68,13 @@ export const resolvers = {
   // ============================================
   Mutation: {
     // Register a new user
-    register: async (_parent: unknown, _args: { input: { email: string; username: string; password: string } }) => {
-      // TODO: Implement registration logic
-      // - Hash password
-      // - Create user in database
-      // - Generate JWT token
-      throw new Error('Register mutation not yet implemented');
+    register: async (_parent: unknown, args: { input: RegisterInput }) => {
+      return registerUser(args.input);
     },
 
     // Login user
-    login: async (_parent: unknown, _args: { input: { email: string; password: string } }) => {
-      // TODO: Implement login logic
-      // - Find user by email
-      // - Verify password
-      // - Generate JWT token
-      throw new Error('Login mutation not yet implemented');
+    login: async (_parent: unknown, args: { input: LoginInput }) => {
+      return loginUser(args.input);
     },
 
     // Create a new room

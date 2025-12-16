@@ -1,5 +1,7 @@
 import { verifyToken, extractTokenFromHeader } from './jwt';
-import { GraphQLContext, User } from '../types/context';
+import { GraphQLContext, AuthUser } from '../types/context';
+import { UserModel } from '../models';
+import { mapUserDocument } from '../services/authService';
 
 // Using any for Request to avoid type conflicts between express versions
 type ExpressRequest = any;
@@ -7,7 +9,7 @@ type ExpressRequest = any;
 /**
  * Extracts and verifies JWT token from request headers
  */
-export async function getAuthUser(req: ExpressRequest): Promise<User | null> {
+export async function getAuthUser(req: ExpressRequest): Promise<AuthUser | null> {
   const authHeader = req.headers.authorization;
   const token = extractTokenFromHeader(authHeader);
 
@@ -20,14 +22,16 @@ export async function getAuthUser(req: ExpressRequest): Promise<User | null> {
     return null;
   }
 
-  // In a real app, you would fetch the user from the database here
-  // For now, we'll return the payload as the user
-  // TODO: Fetch user from database to ensure they still exist and are active
-  return {
-    id: payload.userId,
-    email: payload.email,
-    username: payload.email.split('@')[0], // Placeholder
-  };
+  const user = await UserModel.findOne({
+    _id: payload.userId,
+    isDeleted: false,
+  });
+
+  if (!user) {
+    return null;
+  }
+
+  return mapUserDocument(user);
 }
 
 /**
@@ -47,7 +51,7 @@ export async function createContext(req: ExpressRequest): Promise<GraphQLContext
  */
 export async function createSubscriptionContext(
   connectionParams: { authorization?: string }
-): Promise<{ user: User | null }> {
+): Promise<{ user: AuthUser | null }> {
   const authHeader = connectionParams?.authorization;
   const token = extractTokenFromHeader(authHeader);
 
@@ -60,13 +64,12 @@ export async function createSubscriptionContext(
     return { user: null };
   }
 
-  // TODO: Fetch user from database
+  const user = await UserModel.findOne({
+    _id: payload.userId,
+    isDeleted: false,
+  });
+
   return {
-    user: {
-      id: payload.userId,
-      email: payload.email,
-      username: payload.email.split('@')[0],
-    },
+    user: user ? mapUserDocument(user) : null,
   };
 }
-

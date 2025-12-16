@@ -54,8 +54,6 @@ const roomSchema = new Schema<RoomDocument>(
 );
 
 roomSchema.plugin(softDeletePlugin);
-roomSchema.index({ code: 1 }, { unique: true });
 roomSchema.index({ owner: 1 });
 
 export const RoomModel = model<RoomDocument>('Room', roomSchema);
-
