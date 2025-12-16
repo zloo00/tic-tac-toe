@@ -60,7 +60,11 @@ const serverCleanup = useServer(
 
 async function startServer() {
   await apolloServer.start();
-  apolloServer.applyMiddleware({ app: app as any, path: '/graphql' });
+  apolloServer.applyMiddleware({
+    app: app as any,
+    path: '/graphql',
+    cors: false,
+  });
 
   // MongoDB connection
   const mongoUri = process.env.MONGODB_URI;
