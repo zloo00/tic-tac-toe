@@ -1,10 +1,13 @@
 import { PubSub } from 'graphql-subscriptions';
 import { withAuth } from '../utils/guards';
 import type { GraphQLContext } from '../types/context';
-import { GameModel } from '../models';
+import { ChatMessageModel, GameModel, RoomModel, UserModel } from '../models';
 import { loginUser, registerUser } from '../services/authService';
 import type { LoginInput, RegisterInput } from '../services/authService';
 import { getRoomByCode, makeMove as makeGameMove } from '../services/gameService';
+import { ChatMessageType } from '../models/enums';
+import { InvalidInputError, RoomNotFoundError, UnauthenticatedError, UnauthorizedError } from '../utils/errors';
+import { Types } from 'mongoose';
 
 // PubSub instance for subscriptions
 export const pubsub = new PubSub();
@@ -22,7 +25,32 @@ type CreateRoomInput = {
   note?: string | null;
 };
 
+function normalizeRoomCode(roomCode: string): string {
+  return roomCode.trim().toUpperCase();
+}
+
+async function assertRoomParticipant(roomCode: string, userId: string) {
+  const room = await getRoomByCode(roomCode);
+  if (!room) throw new RoomNotFoundError();
+  const inRoom = room.players.some((id) => id.toString() === userId);
+  if (!inRoom) throw new UnauthorizedError('You are not a member of this room');
+  return room;
+}
+
 export const resolvers = {
+  ChatMessage: {
+    room: async (msg: any) => {
+      // msg.room may be ObjectId or populated Room document
+      if (msg.room && typeof msg.room === 'object' && msg.room.code) return msg.room;
+      return RoomModel.findOne({ _id: msg.room, isDeleted: false });
+    },
+    author: async (msg: any) => {
+      // SYSTEM messages may have no author
+      if (!msg.author) return null;
+      if (typeof msg.author === 'object' && msg.author.email) return msg.author;
+      return UserModel.findOne({ _id: msg.author, isDeleted: false });
+    },
+  },
   // ============================================
   // Queries
   // ============================================
@@ -124,11 +152,23 @@ export const resolvers = {
     }),
 
     // Send a chat message
-    sendMessage: withAuth(async (_parent, _args: { input: { roomCode: string; text: string } }, _context) => {
-      // TODO: Implement send message logic
-      // - Create chat message in database
-      // - Publish MESSAGE_ADDED event
-      throw new Error('SendMessage mutation not yet implemented');
+    sendMessage: withAuth(async (_parent, args: { input: { roomCode: string; text: string } }, context) => {
+      const roomCode = normalizeRoomCode(args.input.roomCode);
+      const text = (args.input.text ?? '').trim();
+      if (!text) throw new InvalidInputError('Message text cannot be empty');
+
+      const room = await assertRoomParticipant(roomCode, context.user.id);
+
+      const message = await ChatMessageModel.create({
+        room: room._id,
+        author: new Types.ObjectId(context.user.id),
+        text,
+        type: ChatMessageType.USER,
+      });
+
+      const channel = `${MESSAGE_ADDED}:${roomCode}`;
+      await pubsub.publish(channel, message);
+      return message;
     }),
   },
 
@@ -155,8 +195,13 @@ export const resolvers = {
 
     // Subscribe to new chat messages
     messageAdded: {
-      subscribe: (_parent: unknown, _args: { roomCode: string }) => {
-        return pubsub.asyncIterator([MESSAGE_ADDED]);
+      subscribe: async (_parent: unknown, args: { roomCode: string }, context: any) => {
+        const roomCode = normalizeRoomCode(args.roomCode);
+        const user = context?.user;
+        if (!user) throw new UnauthenticatedError();
+        await assertRoomParticipant(roomCode, user.id);
+        const channel = `${MESSAGE_ADDED}:${roomCode}`;
+        return pubsub.asyncIterator([channel]);
       },
       resolve: (payload: unknown) => payload,
     },
