@@ -1,13 +1,20 @@
 import { PubSub } from 'graphql-subscriptions';
 import { withAuth } from '../utils/guards';
 import type { GraphQLContext } from '../types/context';
-import { ChatMessageModel, GameModel, RoomModel, UserModel } from '../models';
+import { ChatMessageModel, GameModel, MoveModel, RoomModel, UserModel } from '../models';
 import { loginUser, registerUser } from '../services/authService';
 import type { LoginInput, RegisterInput } from '../services/authService';
 import { getRoomByCode, makeMove as makeGameMove } from '../services/gameService';
 import { ChatMessageType } from '../models/enums';
-import { InvalidInputError, RoomNotFoundError, UnauthenticatedError, UnauthorizedError } from '../utils/errors';
+import {
+  InvalidInputError,
+  RoomFullError,
+  RoomNotFoundError,
+  UnauthenticatedError,
+  UnauthorizedError,
+} from '../utils/errors';
 import { Types } from 'mongoose';
+import { RoomStatus, GameStatus, MoveSymbol } from '../models/enums';
 
 // PubSub instance for subscriptions
 export const pubsub = new PubSub();
@@ -38,6 +45,44 @@ async function assertRoomParticipant(roomCode: string, userId: string) {
 }
 
 export const resolvers = {
+  Room: {
+    owner: async (room: any) => {
+      if (room.owner && typeof room.owner === 'object' && room.owner.username) return room.owner;
+      return UserModel.findOne({ _id: room.owner, isDeleted: false });
+    },
+    players: async (room: any) => {
+      const ids = (room.players ?? []).map((id: any) => id.toString());
+      if (ids.length === 0) return [];
+      return UserModel.find({ _id: { $in: ids }, isDeleted: false });
+    },
+    activeGame: async (room: any) => {
+      if (!room.activeGame) return null;
+      return GameModel.findOne({ _id: room.activeGame, isDeleted: false });
+    },
+  },
+  GamePlayer: {
+    user: async (player: any) => {
+      if (player.user && typeof player.user === 'object' && player.user.username) return player.user;
+      return UserModel.findOne({ _id: player.user, isDeleted: false });
+    },
+  },
+  Game: {
+    room: async (game: any) => {
+      if (game.room && typeof game.room === 'object' && game.room.code) return game.room;
+      return RoomModel.findOne({ _id: game.room, isDeleted: false });
+    },
+    turn: async (game: any) => {
+      if (!game.turnUser) return null;
+      return UserModel.findOne({ _id: game.turnUser, isDeleted: false });
+    },
+    winner: async (game: any) => {
+      if (!game.winnerUser) return null;
+      return UserModel.findOne({ _id: game.winnerUser, isDeleted: false });
+    },
+    moves: async (game: any) => {
+      return MoveModel.find({ game: game._id, isDeleted: false }).sort({ createdAt: 1 });
+    },
+  },
   ChatMessage: {
     room: async (msg: any) => {
       // msg.room may be ObjectId or populated Room document
@@ -59,15 +104,13 @@ export const resolvers = {
     me: withAuth((_parent, _args, context) => context.user),
 
     // Get all rooms in lobby (waiting for players)
-    lobbyRooms: (_parent: unknown, _args: unknown, _context: GraphQLContext) => {
-      // TODO: Fetch rooms with status WAITING from database
-      return [];
+    lobbyRooms: async () => {
+      return RoomModel.find({ status: RoomStatus.WAITING, isDeleted: false }).sort({ createdAt: -1 });
     },
 
     // Get room by code
-    roomByCode: (_parent: unknown, _args: { code: string }, _context: GraphQLContext) => {
-      // TODO: Fetch room by code from database
-      return null;
+    roomByCode: async (_parent: unknown, args: { code: string }) => {
+      return getRoomByCode(args.code);
     },
 
     // Get active game in a room
@@ -82,17 +125,33 @@ export const resolvers = {
     // Get chat messages for a room
     chatMessages: (
       _parent: unknown,
-      _args: { roomCode: string; limit?: number; offset?: number },
-      _context: GraphQLContext
-    ) => {
-      // TODO: Fetch chat messages from database with pagination
-      return [];
-    },
+      args: { roomCode: string; limit?: number; offset?: number },
+      context: GraphQLContext
+    ) =>
+      withAuth(async () => {
+        const roomCode = normalizeRoomCode(args.roomCode);
+        await assertRoomParticipant(roomCode, context.user!.id);
+        const limit = Math.min(Math.max(args.limit ?? 50, 1), 200);
+        const offset = Math.max(args.offset ?? 0, 0);
+        const room = await getRoomByCode(roomCode);
+        if (!room) throw new RoomNotFoundError();
+        return ChatMessageModel.find({ room: room._id, isDeleted: false })
+          .sort({ createdAt: -1 })
+          .skip(offset)
+          .limit(limit);
+      })(_parent, args as any, context),
 
     // Get leaderboard
-    leaderboard: (_parent: unknown, _args: { limit?: number }, _context: GraphQLContext) => {
-      // TODO: Fetch leaderboard from database
-      return [];
+    leaderboard: async (_parent: unknown, args: { limit?: number }) => {
+      const limit = Math.min(Math.max(args.limit ?? 50, 1), 200);
+      const users = await UserModel.find({ isDeleted: false }).sort({ rating: -1 }).limit(limit);
+      return users.map((user: any, idx: number) => ({
+        user,
+        rank: idx + 1,
+        rating: user.rating,
+        gamesPlayed: user.gamesPlayed,
+        winRate: user.gamesPlayed > 0 ? 0 : 0,
+      }));
     },
   },
 
@@ -111,31 +170,97 @@ export const resolvers = {
     },
 
     // Create a new room
-    createRoom: withAuth(async (_parent, _args: { input?: CreateRoomInput }, _context) => {
-      // TODO: Implement create room logic
-      // - Generate unique room code
-      // - Create room in database
-      // - Set owner
-      throw new Error('CreateRoom mutation not yet implemented');
+    createRoom: withAuth(async (_parent, args: { input?: CreateRoomInput }, context) => {
+      const desired = args.input?.code ? normalizeRoomCode(args.input.code) : null;
+      const gen = () =>
+        Math.random()
+          .toString(36)
+          .slice(2, 8)
+          .toUpperCase();
+
+      let code = desired ?? gen();
+      for (let i = 0; i < 5; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        const exists = await RoomModel.exists({ code, isDeleted: false });
+        if (!exists) break;
+        code = gen();
+      }
+
+      const room = await RoomModel.create({
+        code,
+        owner: new Types.ObjectId(context.user.id),
+        players: [new Types.ObjectId(context.user.id)],
+        status: RoomStatus.WAITING,
+      });
+
+      const channel = `${ROOM_UPDATED}:${code}`;
+      await pubsub.publish(channel, room);
+      return room;
     }),
 
     // Join an existing room
-    joinRoom: withAuth(async (_parent, _args: { input: { code: string } }, _context) => {
-      // TODO: Implement join room logic
-      // - Find room by code
-      // - Check if room is full
-      // - Add user to room
-      // - Publish ROOM_UPDATED event
-      throw new Error('JoinRoom mutation not yet implemented');
+    joinRoom: withAuth(async (_parent, args: { input: { code: string } }, context) => {
+      const code = normalizeRoomCode(args.input.code);
+      const room = await getRoomByCode(code);
+      if (!room) throw new RoomNotFoundError();
+
+      const userId = new Types.ObjectId(context.user.id);
+      const already = room.players.some((p) => p.toString() === context.user.id);
+      if (!already) {
+        if (room.players.length >= 2) throw new RoomFullError();
+        room.players.push(userId);
+      }
+
+      // Start a game once we have 2 players (minimal)
+      if (room.players.length === 2 && !room.activeGame) {
+        const [p1, p2] = room.players;
+        const game = await GameModel.create({
+          room: room._id,
+          players: [
+            { user: p1, symbol: MoveSymbol.X },
+            { user: p2, symbol: MoveSymbol.O },
+          ],
+          board: Array(9).fill(''),
+          turnUser: p1,
+          winnerUser: null,
+          status: GameStatus.RUNNING,
+          startedAt: new Date(),
+          endedAt: null,
+        });
+        room.activeGame = game._id;
+        room.status = RoomStatus.IN_PROGRESS;
+        const gch = `${GAME_UPDATED}:${code}`;
+        await pubsub.publish(gch, game);
+      }
+
+      await room.save();
+      const channel = `${ROOM_UPDATED}:${code}`;
+      await pubsub.publish(channel, room);
+      return room;
     }),
 
     // Leave a room
-    leaveRoom: withAuth(async (_parent, _args: { roomCode: string }, _context) => {
-      // TODO: Implement leave room logic
-      // - Remove user from room
-      // - Update room status if needed
-      // - Publish ROOM_UPDATED event
-      throw new Error('LeaveRoom mutation not yet implemented');
+    leaveRoom: withAuth(async (_parent, args: { roomCode: string }, context) => {
+      const code = normalizeRoomCode(args.roomCode);
+      const room = await getRoomByCode(code);
+      if (!room) throw new RoomNotFoundError();
+
+      room.players = room.players.filter((p) => p.toString() !== context.user.id);
+      if (room.players.length === 0) {
+        room.isDeleted = true;
+        room.deletedAt = new Date();
+      } else {
+        room.status = RoomStatus.WAITING;
+        // If owner left, reassign owner to remaining player
+        if (room.owner.toString() === context.user.id) {
+          room.owner = room.players[0]!;
+        }
+      }
+
+      await room.save();
+      const channel = `${ROOM_UPDATED}:${code}`;
+      await pubsub.publish(channel, room);
+      return true;
     }),
 
     // Make a move in the game
@@ -178,8 +303,13 @@ export const resolvers = {
   Subscription: {
     // Subscribe to room updates
     roomUpdated: {
-      subscribe: (_parent: unknown, _args: { roomCode: string }) => {
-        return pubsub.asyncIterator([ROOM_UPDATED]);
+      subscribe: async (_parent: unknown, args: { roomCode: string }, context: any) => {
+        const roomCode = normalizeRoomCode(args.roomCode);
+        const user = context?.user;
+        if (!user) throw new UnauthenticatedError();
+        await assertRoomParticipant(roomCode, user.id);
+        const channel = `${ROOM_UPDATED}:${roomCode}`;
+        return pubsub.asyncIterator([channel]);
       },
       resolve: (payload: unknown) => payload,
     },
