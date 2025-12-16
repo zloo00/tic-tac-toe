@@ -7,6 +7,10 @@ import { makeExecutableSchema } from '@graphql-tools/schema';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import { createContext, createSubscriptionContext } from './utils/auth';
+import { formatError } from './utils/errors';
+import { withAuth } from './utils/guards';
+import type { GraphQLContext, SubscriptionContext } from './types/context';
 
 dotenv.config();
 
@@ -21,41 +25,70 @@ app.use(cors({
 
 app.use(express.json());
 
-// Placeholder GraphQL schema
+// GraphQL schema with example protected query
 const typeDefs = `#graphql
   type Query {
     hello: String
+    me: User
+  }
+
+  type User {
+    id: ID!
+    email: String!
+    username: String!
   }
 `;
 
 const resolvers = {
   Query: {
     hello: () => 'Hello from Tic-Tac-Toe Server!',
+    // Example protected resolver
+    me: withAuth((_parent, _args, context) => {
+      return {
+        id: context.user.id,
+        email: context.user.email,
+        username: context.user.username,
+      };
+    }),
   },
 };
 
 const schema = makeExecutableSchema({ typeDefs, resolvers });
 
-// Apollo Server setup
+// Apollo Server setup with authentication context
 const apolloServer = new ApolloServer({
   schema,
-  context: ({ req }) => {
-    // TODO: Add authentication context
-    return { req };
+  context: async ({ req }): Promise<GraphQLContext> => {
+    return await createContext(req);
   },
+  formatError,
+  introspection: process.env.NODE_ENV !== 'production',
 });
 
-// WebSocket server for subscriptions
+// WebSocket server for subscriptions with authentication
 const wsServer = new WebSocketServer({
   server: httpServer,
   path: '/graphql',
 });
 
-const serverCleanup = useServer({ schema }, wsServer);
+const serverCleanup = useServer(
+  {
+    schema,
+    context: async (ctx): Promise<SubscriptionContext> => {
+      const connectionParams = ctx.connectionParams as { authorization?: string } | undefined;
+      const { user } = await createSubscriptionContext(connectionParams || {});
+      return {
+        connectionParams,
+        user,
+      };
+    },
+  },
+  wsServer
+);
 
 async function startServer() {
   await apolloServer.start();
-  apolloServer.applyMiddleware({ app, path: '/graphql' });
+  apolloServer.applyMiddleware({ app: app as any, path: '/graphql' });
 
   // MongoDB connection
   const mongoUri = process.env.MONGODB_URI || 'mongodb://admin:password@localhost:27017/tictactoe?authSource=admin';
