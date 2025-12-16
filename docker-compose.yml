@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: tic-tac-toe-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_DATABASE: tictactoe
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - tictactoe-network
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: tic-tac-toe-server
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      MONGODB_URI: mongodb://admin:password@mongodb:27017/tictactoe?authSource=admin
+      JWT_SECRET: your-super-secret-jwt-key-change-in-production
+    depends_on:
+      - mongodb
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+    networks:
+      - tictactoe-network
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: tic-tac-toe-client
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_GRAPHQL_URL: http://localhost:4000/graphql
+      NEXT_PUBLIC_WS_URL: ws://localhost:4000/graphql
+    depends_on:
+      - server
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+      - /app/.next
+    networks:
+      - tictactoe-network
+
+volumes:
+  mongodb_data:
+
+networks:
+  tictactoe-network:
+    driver: bridge
+
