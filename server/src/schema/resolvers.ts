@@ -1,8 +1,10 @@
 import { PubSub } from 'graphql-subscriptions';
 import { withAuth } from '../utils/guards';
 import type { GraphQLContext } from '../types/context';
+import { GameModel } from '../models';
 import { loginUser, registerUser } from '../services/authService';
 import type { LoginInput, RegisterInput } from '../services/authService';
+import { getRoomByCode, makeMove as makeGameMove } from '../services/gameService';
 
 // PubSub instance for subscriptions
 export const pubsub = new PubSub();
@@ -41,9 +43,12 @@ export const resolvers = {
     },
 
     // Get active game in a room
-    gameByRoom: (_parent: unknown, _args: { roomCode: string }, _context: GraphQLContext) => {
-      // TODO: Fetch active game for room from database
-      return null;
+    gameByRoom: async (_parent: unknown, args: { roomCode: string }) => {
+      const room = await getRoomByCode(args.roomCode);
+      if (!room) {
+        return null;
+      }
+      return GameModel.findOne({ room: room._id, isDeleted: false });
     },
 
     // Get chat messages for a room
@@ -106,14 +111,16 @@ export const resolvers = {
     }),
 
     // Make a move in the game
-    makeMove: withAuth(async (_parent, _args: { input: { roomCode: string; cellIndex: number } }, _context) => {
-      // TODO: Implement make move logic
-      // - Validate move (cell is empty, it's user's turn, game is running)
-      // - Update board
-      // - Check for winner or draw
-      // - Switch turn
-      // - Publish GAME_UPDATED event
-      throw new Error('MakeMove mutation not yet implemented');
+    makeMove: withAuth(async (_parent, args: { input: { roomCode: string; cellIndex: number } }, context) => {
+      const game = await makeGameMove({
+        userId: context.user.id,
+        roomCode: args.input.roomCode,
+        cellIndex: args.input.cellIndex,
+      });
+
+      const channel = `${GAME_UPDATED}:${args.input.roomCode.trim().toUpperCase()}`;
+      await pubsub.publish(channel, game);
+      return game;
     }),
 
     // Send a chat message
@@ -139,8 +146,9 @@ export const resolvers = {
 
     // Subscribe to game updates
     gameUpdated: {
-      subscribe: (_parent: unknown, _args: { roomCode: string }) => {
-        return pubsub.asyncIterator([GAME_UPDATED]);
+      subscribe: (_parent: unknown, args: { roomCode: string }) => {
+        const channel = `${GAME_UPDATED}:${args.roomCode.trim().toUpperCase()}`;
+        return pubsub.asyncIterator([channel]);
       },
       resolve: (payload: unknown) => payload,
     },
