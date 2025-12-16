@@ -22,10 +22,15 @@ docker-compose up
 - Server на порту 4000
 - Client на порту 3000
 
+## 🔐 Переменные окружения
+
+1. Скопируйте `.env.example` в `.env` в корне проекта.
+2. При необходимости поменяйте учетные данные (значения по умолчанию совпадают с `docker-compose.yml`).
+3. В `MONGODB_URI` оставьте хост `mongodb`, чтобы сервер мог обратиться к контейнеру базы.
+
 ## 📦 Технологии
 
 - **Client**: Next.js 14 (App Router), TypeScript, TailwindCSS, Zustand
 - **Server**: Node.js, Express, Apollo GraphQL, TypeScript, MongoDB
 - **Database**: MongoDB
 - **Realtime**: GraphQL Subscriptions
-

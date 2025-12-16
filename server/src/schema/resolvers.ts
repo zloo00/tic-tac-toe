@@ -10,6 +10,14 @@ export const ROOM_UPDATED = 'ROOM_UPDATED';
 export const GAME_UPDATED = 'GAME_UPDATED';
 export const MESSAGE_ADDED = 'MESSAGE_ADDED';
 
+type CreateRoomInput = {
+  code?: string | null;
+  isPrivate?: boolean | null;
+  allowSpectators?: boolean | null;
+  maxPlayers?: number | null;
+  note?: string | null;
+};
+
 export const resolvers = {
   // ============================================
   // Queries
@@ -88,7 +96,7 @@ export const resolvers = {
     },
 
     // Create a new room
-    createRoom: withAuth(async (_parent, _args: { input?: Record<string, unknown> }, _context) => {
+    createRoom: withAuth(async (_parent, _args: { input?: CreateRoomInput }, _context) => {
       // TODO: Implement create room logic
       // - Generate unique room code
       // - Create room in database
@@ -164,4 +172,3 @@ export const resolvers = {
     },
   },
 };
-

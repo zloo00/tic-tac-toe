@@ -123,7 +123,11 @@ input LoginInput {
 }
 
 input CreateRoomInput {
-  # Optional: room name or settings can be added here
+  code: String
+  isPrivate: Boolean
+  allowSpectators: Boolean
+  maxPlayers: Int
+  note: String
 }
 
 input JoinRoomInput {
@@ -211,4 +215,3 @@ type Subscription {
 # ============================================
 
 scalar DateTime
-
