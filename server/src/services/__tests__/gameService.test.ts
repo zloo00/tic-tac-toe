@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { GameModel, RoomModel, UserModel } from '../../models';
 import { makeMove } from '../gameService';
-import { GameStatus, MoveSymbol } from '../../models/enums';
+import { GameStatus, MoveSymbol, RoomStatus } from '../../models/enums';
 
 describe('gameService.makeMove', () => {
   let mongo: MongoMemoryServer;
@@ -39,8 +39,10 @@ describe('gameService.makeMove', () => {
     const { alice, bob } = await createUsers();
     const room = await RoomModel.create({
       code: 'ROOM',
+      name: 'Test Room',
       owner: alice._id,
       players: [alice._id, bob._id],
+      status: RoomStatus.IN_PROGRESS,
     });
 
     const game = await GameModel.create({

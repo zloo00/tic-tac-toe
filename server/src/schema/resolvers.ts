@@ -12,6 +12,7 @@ import {
   RoomNotFoundError,
   UnauthenticatedError,
   UnauthorizedError,
+  UserNotFoundError,
 } from '../utils/errors';
 import { Types } from 'mongoose';
 import { RoomStatus, GameStatus, MoveSymbol } from '../models/enums';
@@ -46,6 +47,7 @@ async function assertRoomParticipant(roomCode: string, userId: string) {
 
 export const resolvers = {
   Room: {
+    name: (room: any) => room.name ?? 'Tic-Tac-Toe Room',
     owner: async (room: any) => {
       if (room.owner && typeof room.owner === 'object' && room.owner.username) return room.owner;
       return UserModel.findOne({ _id: room.owner, isDeleted: false });
@@ -83,6 +85,16 @@ export const resolvers = {
       return MoveModel.find({ game: game._id, isDeleted: false }).sort({ createdAt: 1 });
     },
   },
+  Move: {
+    game: async (move: any) => {
+      if (move.game && typeof move.game === 'object' && Array.isArray(move.game.board)) return move.game;
+      return GameModel.findOne({ _id: move.game, isDeleted: false });
+    },
+    user: async (move: any) => {
+      if (move.user && typeof move.user === 'object' && move.user.username) return move.user;
+      return UserModel.findOne({ _id: move.user, isDeleted: false });
+    },
+  },
   ChatMessage: {
     room: async (msg: any) => {
       // msg.room may be ObjectId or populated Room document
@@ -105,7 +117,10 @@ export const resolvers = {
 
     // Get all rooms in lobby (waiting for players)
     lobbyRooms: async () => {
-      return RoomModel.find({ status: RoomStatus.WAITING, isDeleted: false }).sort({ createdAt: -1 });
+      return RoomModel.find({
+        status: { $in: [RoomStatus.WAITING, RoomStatus.IN_PROGRESS] },
+        isDeleted: false,
+      }).sort({ createdAt: -1 });
     },
 
     // Get room by code
@@ -171,6 +186,11 @@ export const resolvers = {
 
     // Create a new room
     createRoom: withAuth(async (_parent, args: { input?: CreateRoomInput }, context) => {
+      const name = args.input?.name?.trim();
+      const opponentUsername = args.input?.opponentUsername?.trim();
+      if (!name) throw new InvalidInputError('Room name is required');
+      if (!opponentUsername) throw new InvalidInputError('Opponent username is required');
+
       const desired = args.input?.code ? normalizeRoomCode(args.input.code) : null;
       const gen = () =>
         Math.random()
@@ -186,15 +206,45 @@ export const resolvers = {
         code = gen();
       }
 
+      const ownerId = new Types.ObjectId(context.user.id);
+      const opponent = await UserModel.findOne({
+        username: opponentUsername,
+        isDeleted: false,
+      });
+      if (!opponent) throw new UserNotFoundError('Opponent not found');
+      if (opponent.id === context.user.id) {
+        throw new InvalidInputError('You cannot select yourself as opponent');
+      }
+
       const room = await RoomModel.create({
         code,
-        owner: new Types.ObjectId(context.user.id),
-        players: [new Types.ObjectId(context.user.id)],
-        status: RoomStatus.WAITING,
+        name,
+        owner: ownerId,
+        players: [ownerId, opponent._id],
+        status: RoomStatus.IN_PROGRESS,
       });
+
+      const game = await GameModel.create({
+        room: room._id,
+        players: [
+          { user: ownerId, symbol: MoveSymbol.X },
+          { user: opponent._id, symbol: MoveSymbol.O },
+        ],
+        board: Array(9).fill(''),
+        turnUser: ownerId,
+        winnerUser: null,
+        status: GameStatus.RUNNING,
+        startedAt: new Date(),
+        endedAt: null,
+      });
+
+      room.activeGame = game._id;
+      await room.save();
 
       const channel = `${ROOM_UPDATED}:${code}`;
       await pubsub.publish(channel, room);
+      const gch = `${GAME_UPDATED}:${code}`;
+      await pubsub.publish(gch, game);
       return room;
     }),
 

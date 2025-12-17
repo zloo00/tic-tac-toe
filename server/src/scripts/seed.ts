@@ -60,6 +60,7 @@ async function seed() {
 
   await RoomModel.create({
     code: 'ALPHA1',
+    name: 'Alpha Warmup',
     owner: alice._id,
     players: [alice._id],
     status: RoomStatus.WAITING,
@@ -67,6 +68,7 @@ async function seed() {
 
   const duelRoom = await RoomModel.create({
     code: 'BETA2',
+    name: 'Beta Duel',
     owner: bob._id,
     players: [bob._id, carol._id],
     status: RoomStatus.IN_PROGRESS,
@@ -116,6 +118,7 @@ async function seed() {
 
   const finishedRoom = await RoomModel.create({
     code: 'OMEGA3',
+    name: 'Omega Finals',
     owner: carol._id,
     players: [alice._id, carol._id],
     status: RoomStatus.FINISHED,

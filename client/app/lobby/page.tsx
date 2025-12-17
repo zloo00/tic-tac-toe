@@ -1,16 +1,30 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type FormEvent, type ChangeEvent } from 'react'
 import Link from 'next/link'
-import { useQuery, useSubscription } from '@apollo/client'
-import { LOBBY_ROOMS_QUERY, ROOM_UPDATED_SUBSCRIPTION } from '../../lib/graphql/operations'
+import { useRouter } from 'next/navigation'
+import { useMutation, useQuery, useSubscription } from '@apollo/client'
+import {
+  CREATE_ROOM_MUTATION,
+  LOBBY_ROOMS_QUERY,
+  ROOM_UPDATED_SUBSCRIPTION,
+} from '../../lib/graphql/operations'
+import { useUIStore } from '../../store'
 
 export default function LobbyPage() {
+  const router = useRouter()
+  const addToast = useUIStore((state) => state.addToast)
   const [focusedRoomCode, setFocusedRoomCode] = useState<string | null>(null)
+  const [form, setForm] = useState({
+    name: '',
+    opponentUsername: '',
+  })
 
   const { data, loading, error, refetch } = useQuery(LOBBY_ROOMS_QUERY, {
     fetchPolicy: 'cache-and-network',
   })
+
+  const [createRoomMutation, { loading: creatingRoom }] = useMutation(CREATE_ROOM_MUTATION)
 
   useSubscription(ROOM_UPDATED_SUBSCRIPTION, {
     variables: { roomCode: focusedRoomCode ?? '' },
@@ -19,6 +33,49 @@ export default function LobbyPage() {
       refetch()
     },
   })
+
+  const handleCreateRoom = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!form.name.trim() || !form.opponentUsername.trim()) {
+      addToast({
+        title: 'Заполните все поля',
+        type: 'error',
+      })
+      return
+    }
+
+    try {
+      const { data } = await createRoomMutation({
+        variables: {
+          input: {
+            name: form.name.trim(),
+            opponentUsername: form.opponentUsername.trim(),
+          },
+        },
+      })
+      const code = data?.createRoom?.code
+      if (code) {
+        addToast({
+          title: 'Комната создана',
+          description: `Код: ${code}`,
+          type: 'success',
+        })
+        setForm({ name: '', opponentUsername: '' })
+        router.push(`/room/${code}`)
+      }
+    } catch (err: any) {
+      addToast({
+        title: 'Ошибка создания комнаты',
+        description: err?.message ?? 'Попробуйте снова',
+        type: 'error',
+      })
+    }
+  }
+
+  const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = event.target
+    setForm((prev) => ({ ...prev, [name]: value }))
+  }
 
   const rooms = data?.lobbyRooms ?? []
 
@@ -39,6 +96,47 @@ export default function LobbyPage() {
           >
             Leaderboard →
           </Link>
+        </div>
+
+        <div className="mt-8 rounded-3xl border border-emerald-300/20 bg-emerald-300/5 p-6 shadow-2xl backdrop-blur">
+          <form className="flex flex-col gap-4 sm:flex-row sm:items-end" onSubmit={handleCreateRoom}>
+            <div className="flex-1">
+              <label className="text-xs uppercase tracking-[0.3em] text-white/60" htmlFor="name">
+                Название комнаты
+              </label>
+              <input
+                id="name"
+                name="name"
+                value={form.name}
+                onChange={handleInputChange}
+                placeholder="Например, Alpha Duel"
+                className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition focus:border-emerald-300/60"
+              />
+            </div>
+            <div className="flex-1">
+              <label
+                className="text-xs uppercase tracking-[0.3em] text-white/60"
+                htmlFor="opponentUsername"
+              >
+                Ник соперника
+              </label>
+              <input
+                id="opponentUsername"
+                name="opponentUsername"
+                value={form.opponentUsername}
+                onChange={handleInputChange}
+                placeholder="playerTwo"
+                className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition focus:border-emerald-300/60"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={creatingRoom}
+              className="rounded-2xl bg-emerald-400/80 px-6 py-3 text-sm font-semibold uppercase tracking-[0.25em] text-emerald-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {creatingRoom ? 'Создание…' : 'Создать комнату'}
+            </button>
+          </form>
         </div>
 
         <div className="mt-10 rounded-3xl border border-white/10 bg-white/5 p-8 shadow-2xl backdrop-blur">
@@ -63,6 +161,8 @@ export default function LobbyPage() {
                 >
                   <div className="flex items-center justify-between">
                     <div>
+                      <p className="text-xs uppercase tracking-[0.3em] text-white/60">Название</p>
+                      <p className="text-lg font-semibold text-white">{room.name}</p>
                       <p className="text-xs uppercase tracking-[0.3em] text-white/60">Code</p>
                       <p className="text-2xl font-semibold">{room.code}</p>
                     </div>
@@ -100,11 +200,12 @@ export default function LobbyPage() {
           </div>
 
           {!loading && rooms.length === 0 && (
-            <p className="text-center text-sm text-white/60">No rooms yet. Create one from the API.</p>
+            <p className="text-center text-sm text-white/60">
+              Пока нет комнат. Создайте первую кнопкой «Создать комнату» выше.
+            </p>
           )}
         </div>
       </div>
     </main>
   )
 }
-

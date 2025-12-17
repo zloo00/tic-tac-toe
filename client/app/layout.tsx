@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import Providers from './providers'
+import SiteShell from './site-shell'
 
 export const metadata: Metadata = {
   title: 'Tic-Tac-Toe Online',
@@ -15,7 +16,9 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="min-h-screen bg-background text-foreground">
-        <Providers>{children}</Providers>
+        <Providers>
+          <SiteShell>{children}</SiteShell>
+        </Providers>
       </body>
     </html>
   )

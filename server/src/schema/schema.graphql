@@ -50,6 +50,7 @@ type User {
 type Room {
   id: ID!
   code: String!
+  name: String!
   status: RoomStatus!
   owner: User!
   players: [User!]!
@@ -124,6 +125,8 @@ input LoginInput {
 
 input CreateRoomInput {
   code: String
+  name: String!
+  opponentUsername: String!
   isPrivate: Boolean
   allowSpectators: Boolean
   maxPlayers: Int

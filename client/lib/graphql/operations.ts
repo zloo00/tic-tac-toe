@@ -15,6 +15,7 @@ const ROOM_FIELDS = gql`
   fragment RoomFields on Room {
     id
     code
+    name
     status
     owner {
       ...UserFields
@@ -157,3 +158,11 @@ export const MAKE_MOVE_MUTATION = gql`
   ${GAME_FIELDS}
 `;
 
+export const CREATE_ROOM_MUTATION = gql`
+  mutation CreateRoom($input: CreateRoomInput) {
+    createRoom(input: $input) {
+      ...RoomFields
+    }
+  }
+  ${ROOM_FIELDS}
+`;
