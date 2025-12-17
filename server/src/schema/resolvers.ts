@@ -27,6 +27,8 @@ export const MESSAGE_ADDED = 'MESSAGE_ADDED';
 
 type CreateRoomInput = {
   code?: string | null;
+  name?: string | null;
+  opponentUsername?: string | null;
   isPrivate?: boolean | null;
   allowSpectators?: boolean | null;
   maxPlayers?: number | null;

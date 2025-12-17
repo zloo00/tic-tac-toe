@@ -1,9 +1,12 @@
 'use client'
 
-import { useState, type FormEvent, type ChangeEvent } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useMutation, useQuery, useSubscription } from '@apollo/client'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
 import {
   CREATE_ROOM_MUTATION,
   LOBBY_ROOMS_QUERY,
@@ -11,13 +14,23 @@ import {
 } from '../../lib/graphql/operations'
 import { useUIStore } from '../../store'
 
+const createRoomSchema = z.object({
+  name: z.string().min(3, 'Минимум 3 символа').max(40, 'Максимум 40 символов'),
+  opponentUsername: z.string().min(3, 'Минимум 3 символа').max(30, 'Максимум 30 символов'),
+})
+
+type CreateRoomForm = z.infer<typeof createRoomSchema>
+
 export default function LobbyPage() {
   const router = useRouter()
   const addToast = useUIStore((state) => state.addToast)
   const [focusedRoomCode, setFocusedRoomCode] = useState<string | null>(null)
-  const [form, setForm] = useState({
-    name: '',
-    opponentUsername: '',
+  const form = useForm<CreateRoomForm>({
+    resolver: zodResolver(createRoomSchema),
+    defaultValues: {
+      name: '',
+      opponentUsername: '',
+    },
   })
 
   const { data, loading, error, refetch } = useQuery(LOBBY_ROOMS_QUERY, {
@@ -34,22 +47,13 @@ export default function LobbyPage() {
     },
   })
 
-  const handleCreateRoom = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!form.name.trim() || !form.opponentUsername.trim()) {
-      addToast({
-        title: 'Заполните все поля',
-        type: 'error',
-      })
-      return
-    }
-
+  const handleCreateRoom = form.handleSubmit(async (values) => {
     try {
       const { data } = await createRoomMutation({
         variables: {
           input: {
-            name: form.name.trim(),
-            opponentUsername: form.opponentUsername.trim(),
+            name: values.name.trim(),
+            opponentUsername: values.opponentUsername.trim(),
           },
         },
       })
@@ -60,7 +64,7 @@ export default function LobbyPage() {
           description: `Код: ${code}`,
           type: 'success',
         })
-        setForm({ name: '', opponentUsername: '' })
+        form.reset()
         router.push(`/room/${code}`)
       }
     } catch (err: any) {
@@ -70,12 +74,7 @@ export default function LobbyPage() {
         type: 'error',
       })
     }
-  }
-
-  const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = event.target
-    setForm((prev) => ({ ...prev, [name]: value }))
-  }
+  })
 
   const rooms = data?.lobbyRooms ?? []
 
@@ -99,19 +98,23 @@ export default function LobbyPage() {
         </div>
 
         <div className="mt-8 rounded-3xl border border-emerald-300/20 bg-emerald-300/5 p-6 shadow-2xl backdrop-blur">
-          <form className="flex flex-col gap-4 sm:flex-row sm:items-end" onSubmit={handleCreateRoom}>
+          <form
+            className="flex flex-col gap-4 sm:flex-row sm:items-end"
+            onSubmit={handleCreateRoom}
+          >
             <div className="flex-1">
               <label className="text-xs uppercase tracking-[0.3em] text-white/60" htmlFor="name">
                 Название комнаты
               </label>
               <input
                 id="name"
-                name="name"
-                value={form.name}
-                onChange={handleInputChange}
+                {...form.register('name')}
                 placeholder="Например, Alpha Duel"
                 className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition focus:border-emerald-300/60"
               />
+              {form.formState.errors.name && (
+                <p className="mt-1 text-xs text-red-300">{form.formState.errors.name.message}</p>
+              )}
             </div>
             <div className="flex-1">
               <label
@@ -122,16 +125,19 @@ export default function LobbyPage() {
               </label>
               <input
                 id="opponentUsername"
-                name="opponentUsername"
-                value={form.opponentUsername}
-                onChange={handleInputChange}
+                {...form.register('opponentUsername')}
                 placeholder="playerTwo"
                 className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition focus:border-emerald-300/60"
               />
+              {form.formState.errors.opponentUsername && (
+                <p className="mt-1 text-xs text-red-300">
+                  {form.formState.errors.opponentUsername.message}
+                </p>
+              )}
             </div>
             <button
               type="submit"
-              disabled={creatingRoom}
+              disabled={creatingRoom || form.formState.isSubmitting}
               className="rounded-2xl bg-emerald-400/80 px-6 py-3 text-sm font-semibold uppercase tracking-[0.25em] text-emerald-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-70"
             >
               {creatingRoom ? 'Создание…' : 'Создать комнату'}

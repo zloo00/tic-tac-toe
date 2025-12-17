@@ -25,6 +25,10 @@ app.use(cors({
 
 app.use(express.json());
 
+app.get('/health', (_req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
 const schema = makeExecutableSchema({ typeDefs, resolvers });
 
 // Apollo Server setup with authentication context
